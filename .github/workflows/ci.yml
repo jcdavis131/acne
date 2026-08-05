@@ -1,0 +1,46 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: pip install -e .[dev]
+      - name: Test
+        run: pytest
+      - name: E2E proud check (Person 2, Location 1, tiny<full)
+        run: |
+          python - << 'PY'
+          import tempfile, pathlib, sys
+          sys.path.insert(0, "src")
+          from acne import ContactsHub
+          hub = ContactsHub(base=pathlib.Path(tempfile.mkdtemp()))
+          blob="""From: Alice Chen <alice@acme-corp.com>
+          Alice Chen from Acme Corp authored Q4 Technical Architecture on 2025-11-10.
+          Acme Corp partnered with Beta Labs. Bob Jones reviewed in San Francisco.
+          A. Chen cited doi:10.1109/mcp.2025"""
+          r=hub.pipeline_run(source=blob, title="Email Q4")
+          assert r['stats']['by_class']['Person']==2, f"expected 2 Person got {r['stats']['by_class']}"
+          assert r['stats']['by_class']['Location']==1, "SF should be Location"
+          tiny=hub.graphrag(query="Q4", compressed=True)
+          full=hub.graphrag(query="Q4", compressed=False)
+          assert len(str(tiny)) < len(str(full)), "compressed must be smaller"
+          print(f"proud: Person 2 Location 1 nodes={r['stats']['nodes']} edges={r['stats']['edges']} tiny={len(str(tiny))} < full={len(str(full))}")
+          PY
+      - name: Adapters importable
+        run: |
+          python -c "from acne.integrations.hatch_adapter import get_hatch_tools; print('hatch', len(get_hatch_tools()))"
+          python -c "from acne.integrations.claude_adapter import get_claude_tools; print('claude', len(get_claude_tools()))"
+          python -c "from acne.integrations.hermes_adapter import get_hermes_tools; print('hermes', len(get_hermes_tools()))"
