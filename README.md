@@ -54,9 +54,9 @@ print(hub.cache.stats())  # {'doc_hits','emb_hits','ext_hits','query_hits','comp
 ## 7 harnesses, same store
 
 ```python
-from acne.integrations import get_hatch_tools, get_claude_tools, get_langchain_tools
+from acne.integrations import get_S Scout_tools, get_claude_tools, get_langchain_tools
 
-get_hatch_tools()      # 8 tools — Hatch-native {name,description,parameters,execute}
+get_S Scout_tools()      # 8 tools — S Scout-native {name,description,parameters,execute}
 get_claude_tools()     # 6 tools — Claude-native {name,description,input_schema}
 get_langchain_tools()  # 10 Tools — LangChain StructuredTool
 # + hermes, myclaw, crewai, openai — all local, same JSONL files
@@ -80,7 +80,7 @@ get_langchain_tools()  # 10 Tools — LangChain StructuredTool
 3. Resolve: trigger resolver + `SAME_AS` soft-merge (never hard delete), tx_time/valid_from
 4. GraphRAG: provenance-aware, compressed packs capped to `budget_tokens` (default 600)
 
-**Adapters:** Hermes, Claude Code, Hatch, LangChain/LangGraph, MyClaw, CrewAI, OpenAI — 6-10 tools each, 13 MCP tools.
+**Adapters:** Hermes, Claude Code, S Scout, LangChain/LangGraph, MyClaw, CrewAI, OpenAI — 6-10 tools each, 13 MCP tools.
 
 **CLI:** `acne pipeline|graphrag --compressed|add|resolve|cache-stats|mcp-def`
 
