@@ -41,6 +41,7 @@ def get_claude_tools(*args, **kwargs):
     return _fn(*args, **kwargs)
 
 __all__ = [
+    "hill_climb_resolve_with_hard_soft","hard_sameas","soft_sameas","decide_sameas","build_edge","CONTACTS_50","seed_50",
     "ContactsHub",
     "Contact", "Trigger", "ResolveResult",
     "TLPGNode", "TLPGEdge", "DocumentArtifact", "TextChunk",
@@ -50,4 +51,16 @@ __all__ = [
     "get_hermes_tools", "get_myclaw_tools", "get_hatch_tools", "get_claude_tools",
 ]
 
-__version__ = "0.2.1"
+# hard→soft SAME_AS rich alias
+try:
+    from .sameas_hard_soft import hard_sameas, soft_sameas, decide_sameas, build_edge, hill_climb_resolve_with_hard_soft
+except Exception:
+    pass
+
+try:
+    from .data_seed_50 import CONTACTS_50, seed_50
+except Exception:
+    CONTACTS_50=[]
+    def seed_50(*a,**kw): return {"added":0}
+
+__version__ = "0.3.0-hard-soft-50c"

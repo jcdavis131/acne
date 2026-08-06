@@ -95,3 +95,32 @@ get_langchain_tools()  # 10 Tools — LangChain StructuredTool
 ## License
 
 MIT
+
+
+## v0.3.0 Hard→Soft SAME_AS + 50+ Contacts Hill-Climb (2026-08-06 Lane 2)
+
+**30c 57t → 54c 80+ t — richer alias handling**
+
+- **Hard SAME_AS** (confidence 0.88-0.98, deterministic): exact email lowercased, exact trigger phrase lowercased + same node_class + confidence>0.55, exact canonical + shared org/domain, manual source priority. Edge props `{"hard":True,"reason":..., "deterministic":True}`. Auto-merge allowed but never destructive delete — both nodes preserved via SAME_AS link, canonical chosen longer name + higher confidence + manual source, provenance checksum SHA1 alias preserved.
+
+- **Soft SAME_AS** (0.55-0.89, probabilistic): jaccard>0.6 OR abbrev "A. Chen"→"Alice Chen" first-initial+last OR cosine>0.85 hash-embed 32-d OR shared org+location co-occurrence OR shared alias. Edge props `{"hard":False,"soft":True,"jaccard":..., "abbrev":..., "vec":...}`. Never auto-merge, GraphRAG resolves both but prefers hard canonical if exists. Example: "Alice C. Chen" soft 0.75 → linked not merged until email hard confirms.
+
+**Hill-Climb 50+ contacts** (deterministic seed `seed_50()`):
+- DeepMind 13 persons sample (DreamerV3 team), FAIR Meta 2 persons, Institute Optical Neural Tech 3 persons, Stanford 1 person, Acme Corp 7 persons, Studio Co 5 persons, Stripe 3 persons, Linear 3 persons, Scout runtime 4 agents, Sports Media 2 persons, OpenSource 2 persons, Markets 2 persons — total 54 persons + 5 orgs = 59 nodes.
+- Each contact: trigger resolver `my designer` → Alex Rivera confidence 0.88 source manual <50ms no LLM, provenance Document→Chunk→EXTRACTED_FROM edge checksum, tx_time, valid_from, confidence tracking.
+
+Token-cache 5-layer still 70-88% typical saving, no torch, no cloud, local JSONL.
+
+Usage:
+
+```python
+from acne import seed_50, hill_climb_resolve_with_hard_soft, hard_sameas, soft_sameas
+hub=seed_50()  # returns stats {"added":54,"persons":54,"orgs":5,"edges_created":...,"hard_soft":"hard→soft enabled"}
+# hard→soft decision
+hard_sameas(node_a, node_b)  # (is_hard, reason, conf)
+soft_sameas(node_a, node_b)  # (is_soft, details, conf)
+hill_climb_resolve_with_hard_soft(hub.tlpg)
+```
+
+Provenance & safety unchanged: source manual|calendar|memory_heuristic|enriched|extraction|ingest, low <0.4 hint not fact, SAME_AS edges typed hard/soft, audit log mutate_relationship_edge, local-first.
+
