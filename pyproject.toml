@@ -27,7 +27,8 @@ dev = ["pytest>=8", "pytest-asyncio"]
 langchain = ["langchain-core>=0.3", "langchain>=0.3"]
 crewai = ["crewai>=0.70"]
 openai = ["openai>=1.0"]
-all = ["langchain-core>=0.3", "langchain>=0.3", "crewai>=0.70", "openai>=1.0"]
+mcp = ["mcp>=1.28.1"]
+all = ["langchain-core>=0.3", "langchain>=0.3", "crewai>=0.70", "openai>=1.0", "mcp>=1.28.1"]
 
 [project.urls]
 Homepage = "https://github.com/jcdavis131/acne"

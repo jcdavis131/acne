@@ -235,5 +235,19 @@ def graphrag_cmd(query: str = typer.Argument(..., help="e.g. 'Find all citations
     for e in res["edges"][:8]:
         console.print(f"  edge {e['source_id'][:8]} -[{e['edge_type']} {e['confidence']}]→ {e['target_id'][:8]}")
 
+@app.command("mcp-serve")
+def mcp_serve_cmd(
+    sse: bool = typer.Option(True, "--sse/--stdio", help="SSE/HTTP (default) or stdio"),
+    port: int = typer.Option(8899, "--port"),
+):
+    """Serve acne as an MCP server so agent harnesses can use it as a downstream."""
+    try:
+        from .mcp_sse import run_server
+        run_server(transport="sse" if sse else "stdio", port=port)
+    except RuntimeError as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1) from e
+
+
 if __name__ == "__main__":
     app()
