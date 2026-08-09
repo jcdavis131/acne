@@ -92,6 +92,20 @@ get_langchain_tools()  # 10 Tools — LangChain StructuredTool
 - audit log for `mutate_relationship_edge`
 - local-first `~/.acne` or `~/workspace/bundles/memory/contacts_harness/`
 
+## Ecosystem
+
+Status as of 2026-08-09.
+
+ACNE is the standalone people-memory package in the [dottie](https://github.com/jcdavis131/dottie) fleet. The fleet map, [docs/ECOSYSTEM.md](https://github.com/jcdavis131/dottie/blob/main/docs/ECOSYSTEM.md), records its role: local-first people memory (typed temporal property graph, trigger-phrase resolver) backing the `contacts` plugin surface, maintained as a standalone package.
+
+| Surface | Where | Status (2026-08-09) |
+|---|---|---|
+| Scout CLI `contacts` plugin | `dottie/apps/scout-cli/bigbang/plugins/contacts` | Designed for ACNE, not wired end-to-end. The plugin imports an `acne.tools` facade (`resolve_contact`, `search_nodes`, `graphify_query`, `health_report`, `sync_all`) that 0.2.1 does not ship. |
+| Scout adapter in this package | `acne.integrations.scout_adapter` (`get_scout_tools`) | Shipped — alias of the runtime adapter tools. |
+| Scout CLI `agents` plugin | `dottie/apps/scout-cli/bigbang/plugins/agents` | Follows the ACNE 5-layer cache pattern by convention; does not import this package. |
+
+ACNE is not a declared dependency of Scout CLI; the contacts plugin attempts the import at call time and falls back to a local source path when the package is not installed. Closing the gap means shipping the `acne.tools` facade here or pointing the plugin at the shipped adapter surface.
+
 ## License
 
 MIT
