@@ -100,11 +100,12 @@ ACNE is the standalone people-memory package in the [dottie](https://github.com/
 
 | Surface | Where | Status (2026-08-09) |
 |---|---|---|
-| Scout CLI `contacts` plugin | `dottie/apps/scout-cli/bigbang/plugins/contacts` | Designed for ACNE, not wired end-to-end. The plugin imports an `acne.tools` facade (`resolve_contact`, `search_nodes`, `graphify_query`, `health_report`, `sync_all`) that 0.2.1 does not ship. |
+| Scout CLI `contacts` plugin | `dottie/apps/scout-cli/bigbang/plugins/contacts` | **Shipped.** The plugin imports the `acne.tools` facade this package now provides (`resolve_contact`, `search_nodes`, `graphify_query`, `health_report`, `sync_all` — see `src/acne/tools.py`); its five-function signature set is a public contract, changed only additively. |
+| MCP downstream (`acne mcp-serve`) | `src/acne/mcp_sse.py`, optional extra `acne[mcp]` | **Shipped.** Serves the same 12 tools as the stdio server over SSE/HTTP with real input schemas, so MCP harnesses (for example scout-cli's meta-MCP namespaces) can register ACNE as a downstream people-memory server: `acne mcp-serve --port 8899`, then `scout mcp add acne http://127.0.0.1:8899/sse`. |
 | Scout adapter in this package | `acne.integrations.scout_adapter` (`get_scout_tools`) | Shipped — alias of the runtime adapter tools. |
 | Scout CLI `agents` plugin | `dottie/apps/scout-cli/bigbang/plugins/agents` | Follows the ACNE 5-layer cache pattern by convention; does not import this package. |
 
-ACNE is not a declared dependency of Scout CLI; the contacts plugin attempts the import at call time and falls back to a local source path when the package is not installed. Closing the gap means shipping the `acne.tools` facade here or pointing the plugin at the shipped adapter surface.
+ACNE is an optional runtime dependency of Scout CLI, not a locked one: the contacts plugin imports it at call time and degrades gracefully when it is not installed. Install with `pip install acne` (or an editable checkout) next to scout-cli to activate the surface.
 
 ## License
 
