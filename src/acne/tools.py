@@ -3,8 +3,9 @@
 The scout-cli `contacts` plugin (dottie monorepo, apps/scout-cli) imports
 exactly these five functions; treat their signatures as a public contract and
 change them only additively. Each function builds a ContactsHub against the
-default local store (~/.agentic-contacts) unless `base` is passed — tests pass
-a tmp path, embedders may pin a workspace.
+default local store (~/.acne, falling back to the legacy ~/.agentic-contacts
+path if that's where existing data already lives) unless `base` is passed —
+tests pass a tmp path, embedders may pin a workspace.
 
 Everything here is local-first and honest about capability: `sync_all` walks a
 directory of text/markdown files through the full pipeline (ingest → extract →

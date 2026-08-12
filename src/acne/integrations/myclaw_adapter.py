@@ -26,7 +26,7 @@ MYCLAW_MANIFEST = {
     "description": "Local-first people memory + TLPG 4-stage + token-cache for expensive agents. 6 native tools, 13 via MCP.",
     "version": "0.2.1",
     "entry": "cli.py",
-    "single_source": "agentic-contacts pip + harness local store ~/workspace/bundles/memory/contacts_harness (fallback ~/.agentic-contacts)",
+    "single_source": "acne pip + harness local store ~/workspace/bundles/memory/contacts_harness (fallback ~/.acne, or ~/.agentic-contacts for pre-rename installs)",
     "capabilities": {"network": False, "filesystem": True, "secrets": False},
     "tools": [
         "contacts_resolve",

@@ -5,12 +5,27 @@ from pathlib import Path
 from typing import List, Optional, Dict
 from .models import Contact, Trigger
 
-DEFAULT_DIR = Path.home() / ".agentic-contacts"
+DEFAULT_DIR = Path.home() / ".acne"
+LEGACY_DIR = Path.home() / ".agentic-contacts"
 WORKSPACE_FALLBACK = Path.home() / "workspace" / "bundles" / "memory"
+
+
+def _resolve_default_dir() -> Path:
+    """Pick the local store dir when no `base` is given.
+
+    ACNE was renamed from "agentic-contacts"; new installs should live at
+    the documented `~/.acne`. Existing installs that already have data under
+    the old `~/.agentic-contacts` path keep using it so nobody's contacts
+    silently "disappear" after an upgrade.
+    """
+    if not DEFAULT_DIR.exists() and LEGACY_DIR.exists():
+        return LEGACY_DIR
+    return DEFAULT_DIR
+
 
 class ContactsStore:
     def __init__(self, base: Optional[Path] = None):
-        self.base = Path(base) if base else DEFAULT_DIR
+        self.base = Path(base) if base else _resolve_default_dir()
         self.base.mkdir(parents=True, exist_ok=True)
         self.contacts_file = self.base / "contacts.jsonl"
         self.triggers_file = self.base / "triggers.jsonl"
@@ -23,7 +38,8 @@ class ContactsStore:
             if not line.strip(): continue
             try:
                 out.append(json.loads(line))
-            except: continue
+            except json.JSONDecodeError:
+                continue
         return out
 
     def _write_jsonl(self, p: Path, items: List[Dict]):
