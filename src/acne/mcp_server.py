@@ -169,7 +169,7 @@ def main_stdio():
         if not line.strip(): continue
         try:
             req = json.loads(line)
-        except: continue
+        except json.JSONDecodeError: continue
         resp = handle_request(req)
         sys.stdout.write(json.dumps(resp)+"\n"); sys.stdout.flush()
 

@@ -64,7 +64,7 @@ class TokenCache:
         for line in p.read_text().splitlines():
             if not line.strip(): continue
             try: out.append(json.loads(line))
-            except: continue
+            except json.JSONDecodeError: continue
         return out
 
     def _load(self):
@@ -78,7 +78,7 @@ class TokenCache:
             if "qhash" in obj: self._queries[obj["qhash"]]=obj
         if self.stats_file.exists():
             try: self._stats.update(json.loads(self.stats_file.read_text()))
-            except: pass
+            except (json.JSONDecodeError, OSError): pass
 
     def _save_stats(self):
         self.stats_file.write_text(json.dumps(self._stats, indent=2))

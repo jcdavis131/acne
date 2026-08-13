@@ -51,7 +51,7 @@ def get_runtime_tools(hub=None, base_path: Optional[str]=None) -> List[Dict[str,
     def _cache_stats():
         try:
             return _hub.cache_stats()
-        except:
+        except Exception:
             return {"ok": True, "note": "no cache"}
 
     def _cache_clear():

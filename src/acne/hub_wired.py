@@ -106,7 +106,8 @@ class ContactsHub:
         try:
             if res["document"].checksum:
                 self.cache.put_doc(res["document"].checksum, res["document"].id)
-        except: pass
+        except Exception:
+            pass
         return res
 
     def extract(self, document_id: str = None, model: str = "heuristic", use_cache: bool = True) -> List[Dict]:

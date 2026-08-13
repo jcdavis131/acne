@@ -39,7 +39,7 @@ class TLPGStore:
                 continue
             try:
                 out.append(json.loads(line))
-            except:
+            except json.JSONDecodeError:
                 continue
         return out
 

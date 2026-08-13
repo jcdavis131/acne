@@ -107,7 +107,7 @@ def make_document_artifact(
         # read file
         try:
             raw_text = p.read_text(encoding="utf-8", errors="ignore")
-        except:
+        except (OSError, UnicodeDecodeError):
             raw_text = p.read_bytes().decode("utf-8", errors="ignore")[:200000]
         byte_size = len(raw_text.encode("utf-8", errors="ignore"))
         checksum = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:16]
