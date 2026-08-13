@@ -102,11 +102,20 @@ class ResolveResult:
 # v0.2 TLPG models — typed graph for agentic harnesses
 # ---------------------------------------------------------------------
 
-NodeClass = Literal["Person", "Organization", "Location", "Thing", "Citation", "Document", "Chunk"]
+NodeClass = Literal[
+    "Person", "Organization", "Location", "Thing", "Citation", "Document", "Chunk",
+    # --- constructs v0.4 — harness-aware ---
+    "Construct", "Concept", "Project", "Goal", "Task",
+    "Agent", "Workflow", "Skill", "Bundle", "Event"
+]
 EdgeType = Literal[
     "EMPLOYED_BY", "AUTHORED", "REFERENCES", "EXTRACTED_FROM",
     "SAME_AS", "PARTNER_WITH", "LOCATED_IN", "WORKS_ON", "BELONGS_TO",
-    "MENTIONS", "CITES", "ATTENDED", "ORGANIZED_BY", "RELATED_TO"
+    "MENTIONS", "CITES", "ATTENDED", "ORGANIZED_BY", "RELATED_TO",
+    # --- constructs edges v0.4 ---
+    "OWNS", "CREATED_BY", "USES", "DEPENDS_ON", "IMPLEMENTS",
+    "PART_OF", "MANAGES", "EXECUTES", "TRACKS", "DEFINES",
+    "REALIZES", "ABSTRACTS", "COMPOSED_OF"
 ]
 
 @dataclass
@@ -268,6 +277,17 @@ TAXONOMY_ATTRS: Dict[NodeClass, List[str]] = {
     "Citation": ["doi", "event_timestamp", "url", "venue", "authors"],
     "Document": ["uri", "author", "publication_timestamp", "checksum", "mime_type"],
     "Chunk": ["document_id", "chunk_index", "token_count"],
+    # constructs v0.4
+    "Construct": ["kind", "layer", "principle", "status", "version"],
+    "Concept": ["domain", "abstraction_level", "source_nodes", "definition"],
+    "Project": ["status", "repo", "tech_stack", "owner", "deadline"],
+    "Goal": ["status", "metric", "deadline", "success_criteria", "owner"],
+    "Task": ["status", "priority", "assignee", "due", "project"],
+    "Agent": ["role", "layer", "model", "tools", "packs"],
+    "Workflow": ["phases", "entry", "version", "owner"],
+    "Skill": ["pack", "tools", "use_for", "layer"],
+    "Bundle": ["agents", "packs", "workflows", "version"],
+    "Event": ["timestamp", "type", "participants", "location", "outcome"],
 }
 
 def make_person(name: str, email: str = "", role: str = "", confidence: float = 0.7, source: str = "extraction", source_artifact_id: str = None) -> TLPGNode:
@@ -282,6 +302,61 @@ def make_org(name: str, domain: str = "", industry: str = "", confidence: float 
     if industry: attrs["industry"] = industry
     attrs["legal_name"] = name
     return TLPGNode(node_class="Organization", canonical_name=name, attributes=attrs, confidence=confidence, source=source, source_artifact_id=source_artifact_id)
+
+def make_construct(name: str, kind: str = "construct", layer: str = "", confidence: float = 0.72, source: str = "extraction", source_artifact_id: str = None, **extras) -> TLPGNode:
+    attrs = {"kind": kind}
+    if layer: attrs["layer"] = layer
+    attrs.update(extras)
+    return TLPGNode(node_class="Construct", canonical_name=name, attributes=attrs, confidence=confidence, source=source, source_artifact_id=source_artifact_id)
+
+def make_concept(name: str, domain: str = "", definition: str = "", confidence: float = 0.68, source: str = "extraction", source_artifact_id: str = None) -> TLPGNode:
+    attrs = {}
+    if domain: attrs["domain"] = domain
+    if definition: attrs["definition"] = definition[:400]
+    return TLPGNode(node_class="Concept", canonical_name=name, attributes=attrs, confidence=confidence, source=source, source_artifact_id=source_artifact_id)
+
+def make_project(name: str, status: str = "active", confidence: float = 0.7, source: str = "extraction", source_artifact_id: str = None, **extras) -> TLPGNode:
+    attrs = {"status": status}
+    attrs.update(extras)
+    return TLPGNode(node_class="Project", canonical_name=name, attributes=attrs, confidence=confidence, source=source, source_artifact_id=source_artifact_id)
+
+def make_goal(name: str, status: str = "active", confidence: float = 0.7, source: str = "extraction", source_artifact_id: str = None, **extras) -> TLPGNode:
+    attrs = {"status": status}
+    attrs.update(extras)
+    return TLPGNode(node_class="Goal", canonical_name=name, attributes=attrs, confidence=confidence, source=source, source_artifact_id=source_artifact_id)
+
+def make_task(name: str, status: str = "open", confidence: float = 0.7, source: str = "extraction", source_artifact_id: str = None, **extras) -> TLPGNode:
+    attrs = {"status": status}
+    attrs.update(extras)
+    return TLPGNode(node_class="Task", canonical_name=name, attributes=attrs, confidence=confidence, source=source, source_artifact_id=source_artifact_id)
+
+def make_agent_node(name: str, role: str = "", layer: int = 3, confidence: float = 0.75, source: str = "extraction", source_artifact_id: str = None, **extras) -> TLPGNode:
+    attrs = {"role": role, "layer": layer}
+    attrs.update(extras)
+    return TLPGNode(node_class="Agent", canonical_name=name, attributes=attrs, confidence=confidence, source=source, source_artifact_id=source_artifact_id)
+
+def make_workflow_node(name: str, phases: int = 0, confidence: float = 0.7, source: str = "extraction", source_artifact_id: str = None, **extras) -> TLPGNode:
+    attrs = {}
+    if phases: attrs["phases"] = phases
+    attrs.update(extras)
+    return TLPGNode(node_class="Workflow", canonical_name=name, attributes=attrs, confidence=confidence, source=source, source_artifact_id=source_artifact_id)
+
+def make_skill_node(name: str, pack: str = "", confidence: float = 0.7, source: str = "extraction", source_artifact_id: str = None, **extras) -> TLPGNode:
+    attrs = {"pack": pack or name}
+    attrs.update(extras)
+    return TLPGNode(node_class="Skill", canonical_name=name, attributes=attrs, confidence=confidence, source=source, source_artifact_id=source_artifact_id)
+
+def make_bundle_node(name: str, version: str = "", confidence: float = 0.7, source: str = "extraction", source_artifact_id: str = None, **extras) -> TLPGNode:
+    attrs = {}
+    if version: attrs["version"] = version
+    attrs.update(extras)
+    return TLPGNode(node_class="Bundle", canonical_name=name, attributes=attrs, confidence=confidence, source=source, source_artifact_id=source_artifact_id)
+
+def make_event_node(name: str, timestamp: str = None, confidence: float = 0.65, source: str = "extraction", source_artifact_id: str = None, **extras) -> TLPGNode:
+    attrs = {}
+    if timestamp: attrs["timestamp"] = timestamp
+    attrs.update(extras)
+    return TLPGNode(node_class="Event", canonical_name=name, attributes=attrs, confidence=confidence, source=source, source_artifact_id=source_artifact_id)
 
 def make_edge(src: str, dst: str, edge_type: EdgeType, confidence: float = 0.7, valid_from: str = None, props: Dict[str, Any] = None) -> TLPGEdge:
     return TLPGEdge(source_id=src, target_id=dst, edge_type=edge_type, confidence=confidence, valid_from=valid_from, properties=props or {})

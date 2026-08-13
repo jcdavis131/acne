@@ -9,7 +9,8 @@ from typing import List, Dict, Any, Tuple, Optional
 import re
 import hashlib
 from datetime import datetime
-from .models import TLPGNode, TLPGEdge, TextChunk, ExtractionResult, make_person, make_org, make_edge, _now_iso
+from .models import TLPGNode, TLPGEdge, TextChunk, ExtractionResult, make_person, make_org, make_edge, _now_iso, \
+    make_construct, make_concept, make_project, make_goal, make_task, make_agent_node, make_workflow_node, make_skill_node, make_bundle_node, make_event_node
 
 # ------------------------------------------------------------------
 # Node taxonomy recognizers — heuristic but typed, agent-friendly
@@ -25,6 +26,22 @@ LOCATION_HINTS = [r"\b(at|in|from) ([A-Z][a-z]+(?:, [A-Z][a-z]+)?)\b"]
 KNOWN_LOCATIONS = {"san francisco","san francisco city","new york","boston","seattle","austin","chicago","los angeles","san jose","denver","portland"}
 ORG_DENY_PERSON = {"corp","inc","labs","llc","systems"}
 
+# Constructs v0.4 — Scout harness aware
+CONSTRUCT_PATTERNS = {
+    "Agent": [r"\b(scout-prime|scout-ops|scout-researcher|scout-builder|strategist|planner|executor|researcher|builder|operator|critic|forensic-auditor|deep-researcher|synthesist|action-operator|communicator)\b", r"\b(scout-prime\s+agent)\b"],
+    "Workflow": [r"\b(flawless-delivery|ultra-orchestrator|monitor-and-notify|inbox-to-action|dynamic-planner|layer-executor|adaptive-critic)\b", r"\b(flawless-delivery workflow)\b"],
+    "Bundle": [r"\b(scout bundle|execution bundle|skill pack)\b", r"\b(bundle v[\d\.]+)\b"],
+    "Skill": [r"\b(productivity-pack|communication-pack|commerce-life-pack|builder-pack|deep-research-pack|complex-actions-pack|verification-pack|lateral-thinking-pack)\b"],
+    "Project": [r"\b(vector-(?:hoops|pitch|gridiron|equities|unified|hub)|dottie|scout-cli|dumbmodel\.com|arxiviq)\b", r"\b(vector-hoops)\b"],
+    "Goal": [r"\b(Launched\s*=\s*live URL.*?Aug 31)\b"],
+    "Task": [r"\b(Hill-climb [\w\-]+|Ship [\w\-]+)\b"],
+    "Construct": [r"\b(OODA|MoMA-lite|GraphRAG|TLPG|checkpoint|recovery ladder|pacing filter|verification economics)\b"],
+    "Concept": [r"\b(orientation > speed|tempo over speed|late commitment|3-layer separation|single-responsibility|pure-function)\b"],
+    "Event": [r"\b(harness upgrade|hill-climb)\b"],
+}
+
+CONSTRUCT_DENY_PERSON = {"Goal Launched", "Project Scout", "Task Ship", "Agent That", "Agent And"}
+
 CITATION_RE = re.compile(r"(doi:\s*10\.[^\s\)]+|https?://[^\s\)]+|arXiv:\d{4}\.\d{4,5})", re.I)
 EMAIL_RE = re.compile(r"[\w\.-]+@[\w\.-]+\.\w+")
 DATE_RE = re.compile(r"(20\d{2}-\d{2}-\d{2}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[^\n]{0,12}", re.I)
@@ -38,6 +55,18 @@ RELATION_VERBS = {
     "joined": "EMPLOYED_BY",
     "authored": "AUTHORED",
     "wrote": "AUTHORED",
+    "owns": "OWNS",
+    "created": "CREATED_BY",
+    "built": "CREATED_BY",
+    "uses": "USES",
+    "depends on": "DEPENDS_ON",
+    "implements": "IMPLEMENTS",
+    "executes": "EXECUTES",
+    "manages": "MANAGES",
+    "tracks": "TRACKS",
+    "defines": "DEFINES",
+    "realizes": "REALIZES",
+    "abstracts": "ABSTRACTS",
     "references": "REFERENCES",
     "cites": "REFERENCES",
     "partner": "PARTNER_WITH",
@@ -69,8 +98,14 @@ def extract_entities_heuristic(text: str, source_artifact_id: str = None) -> Tup
         # Known locations must not become Person (e.g., San Francisco)
         if nl in KNOWN_LOCATIONS:
             return
-        if any(w in nclean for w in ["Technical", "Protocol", "Model Context"]):
+        if any(w in nclean for w in ["Technical", "Protocol", "Model Context", "Goal", "Launched", "Project", "Task"]):
             return
+        # Construct deny
+        try:
+            if nclean in CONSTRUCT_DENY_PERSON:
+                return
+        except NameError:
+            pass
         seen_person_lc.add(nl)
         nodes.append(make_person(nclean, confidence=conf, source="heuristic", source_artifact_id=source_artifact_id))
 
@@ -88,6 +123,11 @@ def extract_entities_heuristic(text: str, source_artifact_id: str = None) -> Tup
     # also capture explicit mentions: "Alice C." and "A. Chen" from context line
     for m in re.finditer(r"\b(A\. Chen|Alice C\.)\b", text):
         add_person(m.group(1).strip(), conf=0.64)
+
+    # Filter construct-deny persons
+    for p in list([n for n in nodes if n.node_class == "Person"]):
+        if p.canonical_name in {"Goal Launched", "Task Hill", "Ship Dumbmodel"}:
+            nodes.remove(p)
 
     # Orgs — suffix match
     for suf in ORG_SUFFIXES:
@@ -120,6 +160,55 @@ def extract_entities_heuristic(text: str, source_artifact_id: str = None) -> Tup
         citations.append(cite)
         if cite not in {n.canonical_name for n in nodes}:
             nodes.append(TLPGNode(node_class="Citation", canonical_name=cite[:120], attributes={"url": cite, "doi": cite if "doi" in cite.lower() else ""}, confidence=0.65, source="heuristic", source_artifact_id=source_artifact_id))
+
+    # --- Constructs v0.4 — Scout harness aware ---
+    # Extract agents, workflows, projects, constructs, concepts, etc.
+    existing_names = {n.canonical_name.lower() for n in nodes}
+    def add_construct_node(cls, name, conf=0.68, **attrs):
+        nname = name.strip()[:100]
+        if not nname or nname.lower() in existing_names or len(nname) < 2:
+            return
+        # map cls to maker — careful to not double-pass `kind`
+        kind = attrs.pop("kind", "construct") if cls == "Construct" else attrs.get("kind")
+        maker_map = {
+            "Construct": lambda: make_construct(nname, kind=kind or "construct", confidence=conf, source="heuristic", source_artifact_id=source_artifact_id, **attrs),
+            "Concept": lambda: make_concept(nname, confidence=conf, source="heuristic", source_artifact_id=source_artifact_id),
+            "Project": lambda: make_project(nname, confidence=conf, source="heuristic", source_artifact_id=source_artifact_id, **attrs),
+            "Goal": lambda: make_goal(nname, confidence=conf, source="heuristic", source_artifact_id=source_artifact_id, **attrs),
+            "Task": lambda: make_task(nname, confidence=conf, source="heuristic", source_artifact_id=source_artifact_id, **attrs),
+            "Agent": lambda: make_agent_node(nname, confidence=conf, source="heuristic", source_artifact_id=source_artifact_id, **attrs),
+            "Workflow": lambda: make_workflow_node(nname, confidence=conf, source="heuristic", source_artifact_id=source_artifact_id, **attrs),
+            "Skill": lambda: make_skill_node(nname, confidence=conf, source="heuristic", source_artifact_id=source_artifact_id, **attrs),
+            "Bundle": lambda: make_bundle_node(nname, confidence=conf, source="heuristic", source_artifact_id=source_artifact_id, **attrs),
+            "Event": lambda: make_event_node(nname, confidence=conf, source="heuristic", source_artifact_id=source_artifact_id, **attrs),
+        }
+        maker = maker_map.get(cls)
+        if not maker:
+            return
+        node = maker()
+        nodes.append(node)
+        existing_names.add(nname.lower())
+
+    for cls, patterns in CONSTRUCT_PATTERNS.items():
+        for pat in patterns:
+            try:
+                for m in re.finditer(pat, text, re.I):
+                    nm = m.group(1) if m.groups() else m.group(0)
+                    if cls == "Agent" and nm.lower() in {"agent"}:
+                        continue
+                    # normalize special cases
+                    kind = "construct"
+                    if cls in ("Agent","Workflow","Skill","Bundle","Project"):
+                        kind = cls.lower()
+                    add_construct_node(cls, nm, conf=0.71 if cls in ("Agent","Workflow","Project") else 0.66, kind=kind)
+                    # also capture surrounding context as alias
+            except re.error:
+                continue
+
+    # Additional deterministic constructs always recognizable
+    # OODA, MoMA-lite, etc already covered, ensure they become Construct nodes
+    for m in re.finditer(r"\b(OODA|MoMA-lite|GraphRAG|TLPG|Checkpoint|Recovery Ladder|Pacing Filter|Verification Economics|3-layer separation|OODA Loop)\b", text, re.I):
+        add_construct_node("Construct", m.group(1), conf=0.78, kind="harness_construct", principle=m.group(1))
 
     return nodes, citations
 

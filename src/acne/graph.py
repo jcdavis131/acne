@@ -175,6 +175,278 @@ class TLPGStore:
         return {"nodes": found_nodes, "edges": found_edges, "visited": list(visited)}
 
     # ------------------------------------------------------------------
+    # Constructs v0.4 — Graphify helpers
+    # ------------------------------------------------------------------
+    def add_construct_node(self, name: str, kind: str = "Construct", confidence: float = 0.72, layer: str = "", **extras):
+        """Convenience for adding a Construct/Concept node."""
+        from .models import (
+            make_construct, make_concept, make_project, make_goal, make_task,
+            make_agent_node, make_workflow_node, make_skill_node, make_bundle_node, make_event_node
+        )
+        makers = {
+            "Construct": lambda: make_construct(name, kind=extras.get("kind", "construct"), layer=layer, confidence=confidence, **extras),
+            "Concept": lambda: make_concept(name, confidence=confidence, **extras),
+            "Project": lambda: make_project(name, confidence=confidence, **extras),
+            "Goal": lambda: make_goal(name, confidence=confidence, **extras),
+            "Task": lambda: make_task(name, confidence=confidence, **extras),
+            "Agent": lambda: make_agent_node(name, confidence=confidence, **extras),
+            "Workflow": lambda: make_workflow_node(name, confidence=confidence, **extras),
+            "Skill": lambda: make_skill_node(name, confidence=confidence, **extras),
+            "Bundle": lambda: make_bundle_node(name, confidence=confidence, **extras),
+            "Event": lambda: make_event_node(name, confidence=confidence, **extras),
+        }
+        maker = makers.get(kind)
+        if maker:
+            node = maker()
+        else:
+            node = make_construct(name, kind=kind, layer=layer, confidence=confidence, **extras)
+        return self.upsert_node(node)
+
+    def graphify_constructs(self, threshold: float = 0.6) -> Dict[str, Any]:
+        """
+        v0.4 Construct graphification:
+          - Abstracts low-level entities into higher-level Concept/Construct nodes
+          - Links Person--USES-->Skill, Agent--EXECUTES-->Workflow, Project--COMPOSED_OF-->Task, etc.
+          - Creates COMPOSED_OF / REALIZES / ABSTRACTS edges
+
+        Returns stats dict.
+        """
+        from .models import make_edge
+        nodes = self.list_nodes()
+        edges_created = []
+
+        # bucket by class
+        by_class: Dict[str, List] = {}
+        for n in nodes:
+            by_class.setdefault(n.node_class, []).append(n)
+
+        # Heuristic 1: every Agent EXECUTES at most one Workflow if name overlap
+        for agent in by_class.get("Agent", []):
+            for wf in by_class.get("Workflow", []):
+                if agent.canonical_name.lower() in wf.canonical_name.lower() or wf.canonical_name.lower() in agent.canonical_name.lower():
+                    e = make_edge(agent.id, wf.id, "EXECUTES", confidence=0.72, props={"heuristic":"agent-workflow"})
+                    self.add_edge(e); edges_created.append(e)
+
+        # Heuristic 2: Project COMPOSED_OF Task
+        for proj in by_class.get("Project", []):
+            for task in by_class.get("Task", []):
+                # simple co-location: if task mentions project or shared prefix
+                if proj.canonical_name.lower()[:4] in task.canonical_name.lower():
+                    e = make_edge(proj.id, task.id, "COMPOSED_OF", confidence=0.65)
+                    self.add_edge(e); edges_created.append(e)
+
+        # Heuristic 3: Person USES Skill / Tool -> link
+        for person in by_class.get("Person", []):
+            for skill in by_class.get("Skill", []):
+                # if person node near skill node? For now link all high-conf manual persons to skills they mention
+                e = make_edge(person.id, skill.id, "USES", confidence=0.58, props={"construct":"person-skill"})
+                # only if not too many — limit to avoid spam
+                if len(edges_created) < 200:
+                    self.add_edge(e); edges_created.append(e)
+
+        # Heuristic 4: Bundle PART_OF Workflow / OWNS Skill
+        for bundle in by_class.get("Bundle", []):
+            for skill in by_class.get("Skill", []):
+                e = make_edge(bundle.id, skill.id, "OWNS", confidence=0.66)
+                if len(edges_created) < 250:
+                    self.add_edge(e); edges_created.append(e)
+
+        # Heuristic 5: Abstract Construct nodes from co-occurring low-levels
+        # If >2 nodes share same chunk provenance, create a Concept that ABSTRACTS them
+        chunk_to_nodes: Dict[str, List] = {}
+        for edge in self.list_edges(edge_type="EXTRACTED_FROM"):
+            # edge source=node, target=chunk
+            chunk_to_nodes.setdefault(edge.target_id, []).append(edge.source_id)
+
+        for chunk_id, node_ids in chunk_to_nodes.items():
+            if len(node_ids) >= 3:
+                # make a Concept node for this chunk
+                n_ids = node_ids[:5]
+                concept_name = f"Concept from {chunk_id[:6]}"
+                from .models import TLPGNode
+                concept = TLPGNode(node_class="Concept", canonical_name=concept_name, attributes={"source_nodes": n_ids, "chunk_id": chunk_id, "abstraction_level":"chunk"}, confidence=0.62, source="construct_graphify")
+                self.upsert_node(concept)
+                for nid in n_ids:
+                    e = make_edge(concept.id, nid, "ABSTRACTS", confidence=0.62, props={"chunk_id": chunk_id})
+                    self.add_edge(e); edges_created.append(e)
+
+        # Heuristic 6: Goal REALIZES Project (original)
+        for goal in by_class.get("Goal", []):
+            for proj in by_class.get("Project", []):
+                e = make_edge(goal.id, proj.id, "REALIZES", confidence=0.6)
+                self.add_edge(e); edges_created.append(e)
+                break  # one per goal
+
+        # --- v0.4.1 Goal Slip-Proof Extensions ---
+        # Detect GOAL.md presence to force stronger linking even on name mismatch (link by project attr)
+        from pathlib import Path as _Path
+        goals_present_on_disk = []
+        try:
+            base_goals = _Path.home() / "workspace" / "goals"
+            if base_goals.exists():
+                for gm in base_goals.glob("*/GOAL.md"):
+                    goals_present_on_disk.append(gm)
+                for gm in base_goals.glob("*/*/GOAL.md"):
+                    goals_present_on_disk.append(gm)
+        except Exception:
+            pass
+        has_goal_md = len(goals_present_on_disk) > 0
+
+        goals = by_class.get("Goal", [])
+        projects = by_class.get("Project", [])
+        tasks = by_class.get("Task", [])
+
+        # If GOAL.md present, ensure success_criteria-ish goals still link
+        # Re-bucket live edge lookups for idempotency
+        existing_realizes = {(e.source_id, e.target_id) for e in self.list_edges(edge_type="REALIZES")}
+        existing_tracks = {(e.source_id, e.target_id) for e in self.list_edges(edge_type="TRACKS")}
+        existing_part_of = {(e.source_id, e.target_id) for e in self.list_edges(edge_type="PART_OF")}
+        existing_composed = {(e.source_id, e.target_id) for e in self.list_edges(edge_type="COMPOSED_OF")}
+
+        # Helper to find project match by attr
+        def _proj_match(attr_val: str):
+            if not attr_val:
+                return None
+            av = attr_val.lower().strip()
+            for proj in projects:
+                if av in proj.canonical_name.lower() or proj.canonical_name.lower() in av:
+                    return proj
+            return None
+
+        # 6b: Task PART_OF Project via project attr, else fallback to first project
+        for task in tasks:
+            proj_attr = task.attributes.get("project") or task.attributes.get("project_id") or task.attributes.get("repo")
+            if proj_attr:
+                matched = _proj_match(str(proj_attr))
+                if matched and (task.id, matched.id) not in existing_part_of:
+                    e = make_edge(task.id, matched.id, "PART_OF", confidence=0.72, props={"via":"project_attr","goal_slip_proof":True})
+                    self.add_edge(e); edges_created.append(e); existing_part_of.add((task.id, matched.id))
+
+        # 6c: Goal REALIZES Project even when no name overlap (link by project attr or fallback)
+        for goal in goals:
+            # already has realizes?
+            has_realizes = any(src == goal.id for src, _ in existing_realizes)
+            if has_realizes and not has_goal_md:
+                continue
+            # try attr linking
+            proj_attr = goal.attributes.get("project") or goal.attributes.get("repo") or goal.attributes.get("owner")
+            matched = _proj_match(str(proj_attr)) if proj_attr else None
+            if matched:
+                if (goal.id, matched.id) not in existing_realizes:
+                    # include success_criteria awareness in confidence boost
+                    conf = 0.65
+                    if goal.attributes.get("success_criteria") or has_goal_md:
+                        conf = 0.68
+                    e = make_edge(goal.id, matched.id, "REALIZES", confidence=conf, props={"via":"project_attr","goal_slip_proof":True})
+                    self.add_edge(e); edges_created.append(e); existing_realizes.add((goal.id, matched.id))
+                    continue
+            # fallback: if projects exist and still no link, link to first project when GOAL.md present or success_criteria set
+            if projects and (has_goal_md or goal.attributes.get("success_criteria") or goal.attributes.get("deadline")):
+                first = projects[0]
+                if (goal.id, first.id) not in existing_realizes:
+                    e = make_edge(goal.id, first.id, "REALIZES", confidence=0.58, props={"via":"fallback_goal_md","goal_slip_proof":True})
+                    self.add_edge(e); edges_created.append(e); existing_realizes.add((goal.id, first.id))
+
+        # 6d: Goal TRACKS Task even when no name overlap (link by project attr)
+        # Build task->project map for quick lookup
+        task_to_proj = {}
+        for e in self.list_edges(edge_type="PART_OF"):
+            task_to_proj[e.source_id] = e.target_id
+        for e in self.list_edges(edge_type="COMPOSED_OF"):
+            # Project -> Task opposite direction
+            task_to_proj[e.target_id] = e.source_id
+
+        for goal in goals:
+            # goal's project target(s)
+            goal_projects = [tgt for src,tgt in existing_realizes if src == goal.id]
+            for task in tasks:
+                if (goal.id, task.id) in existing_tracks:
+                    continue
+                # link conditions:
+                # 1) task's project attr matches goal's project attr
+                t_proj_attr = task.attributes.get("project") or ""
+                g_proj_attr = goal.attributes.get("project") or ""
+                if t_proj_attr and g_proj_attr and t_proj_attr.lower() == g_proj_attr.lower():
+                    e = make_edge(goal.id, task.id, "TRACKS", confidence=0.70, props={"via":"project_attr_match","goal_slip_proof":True})
+                    self.add_edge(e); edges_created.append(e); existing_tracks.add((goal.id, task.id))
+                    continue
+                # 2) task's project id overlaps goal's project id
+                if task.id in task_to_proj and task_to_proj[task.id] in goal_projects:
+                    e = make_edge(goal.id, task.id, "TRACKS", confidence=0.66, props={"via":"shared_project","goal_slip_proof":True})
+                    self.add_edge(e); edges_created.append(e); existing_tracks.add((goal.id, task.id))
+                    continue
+                # 3) if GOAL.md present, be generous: link any task to goal if still <3 tasks per goal
+                if has_goal_md:
+                    current_tracks = len([s for s,t in existing_tracks if s == goal.id])
+                    if current_tracks < 3:
+                        # avoid linking all blindly if many tasks — cap 3
+                        e = make_edge(goal.id, task.id, "TRACKS", confidence=0.55, props={"via":"goal_md_generous","goal_slip_proof":True})
+                        self.add_edge(e); edges_created.append(e); existing_tracks.add((goal.id, task.id))
+
+        # 6e: If Goal has no Tasks linked -> placeholder Task "Need tasks for <goal>"
+        from .models import TLPGNode as _Node
+        for goal in goals:
+            tracks_to_tasks = []
+            for src,tgt in existing_tracks:
+                if src == goal.id:
+                    # check target is Task (or will be)
+                    # we need to know node class; use live list
+                    tn = next((n for n in self.list_nodes(node_class="Task") if n.id == tgt), None)
+                    if tn is None:
+                        # maybe placeholder already created earlier in this loop but not in list cache? Check all nodes
+                        tn = self.get_node(tgt)
+                        if tn and tn.node_class != "Task":
+                            continue
+                    # skip placeholder from counting as real?
+                    if tn and tn.attributes.get("placeholder"):
+                        continue
+                    tracks_to_tasks.append(tgt)
+            if len(tracks_to_tasks) == 0:
+                placeholder_name = f"Need tasks for {goal.canonical_name}"
+                # avoid duplicate placeholder
+                existing_placeholder = None
+                for n in self.list_nodes(node_class="Task"):
+                    if n.canonical_name == placeholder_name:
+                        existing_placeholder = n
+                        break
+                    if n.attributes.get("for_goal") == goal.id and n.attributes.get("needs_tasks"):
+                        existing_placeholder = n
+                        break
+                if existing_placeholder is None:
+                    ph_attrs = {
+                        "needs_tasks": True,
+                        "placeholder": True,
+                        "for_goal": goal.id,
+                        "status": "open",
+                        "priority": "high",
+                        "goal_name": goal.canonical_name,
+                    }
+                    placeholder = _Node(
+                        node_class="Task",
+                        canonical_name=placeholder_name,
+                        attributes=ph_attrs,
+                        confidence=0.45,
+                        source="goal_health",
+                    )
+                    self.upsert_node(placeholder)
+                    existing_placeholder = placeholder
+                    # refresh by_class locally if needed
+                # ensure TRACKS edge exists
+                if (goal.id, existing_placeholder.id) not in existing_tracks:
+                    e = make_edge(goal.id, existing_placeholder.id, "TRACKS", confidence=0.45, props={"placeholder": True, "needs_tasks": True, "goal_slip_proof": True})
+                    self.add_edge(e); edges_created.append(e); existing_tracks.add((goal.id, existing_placeholder.id))
+
+        # also ensure Project COMPOSED_OF Task edges where missing (reverse of PART_OF)
+        for proj in projects:
+            for task in tasks:
+                # if task PART_OF proj exists, mirror COMPOSED_OF if missing
+                if (task.id, proj.id) in existing_part_of and (proj.id, task.id) not in existing_composed:
+                    e = make_edge(proj.id, task.id, "COMPOSED_OF", confidence=0.66, props={"mirror":"PART_OF","goal_slip_proof":True})
+                    self.add_edge(e); edges_created.append(e); existing_composed.add((proj.id, task.id))
+
+        return {"constructs_created": len([n for n in self.list_nodes() if n.node_class in ("Construct","Concept","Project","Goal","Task","Agent","Workflow","Skill","Bundle","Event")]), "edges_created": len(edges_created), "by_class": {k: len(v) for k,v in by_class.items()}, "goal_md_found": len(goals_present_on_disk)}
+
+    # ------------------------------------------------------------------
     # GraphRAG — hybrid search
     # ------------------------------------------------------------------
     def _simple_embedding(self, text: str, dim: int = 32, _cache: Any = None) -> List[float]:
@@ -266,11 +538,18 @@ class TLPGStore:
         return result
 
     def stats(self) -> Dict[str, Any]:
+        all_nodes = self.list_nodes()
+        by_class = {}
+        for cls in ["Person", "Organization", "Location", "Thing", "Citation", "Document",
+                    "Construct", "Concept", "Project", "Goal", "Task", "Agent", "Workflow", "Skill", "Bundle", "Event", "Chunk"]:
+            cnt = len([n for n in all_nodes if n.node_class == cls])
+            if cnt:
+                by_class[cls] = cnt
         return {
             "base": str(self.base),
-            "nodes": len(self.list_nodes()),
+            "nodes": len(all_nodes),
             "edges": len(self.list_edges()),
             "documents": len(self.list_documents()),
             "chunks": len(self.list_chunks()),
-            "by_class": {cls: len(self.list_nodes(cls)) for cls in ["Person", "Organization", "Location", "Thing", "Citation", "Document"]},
+            "by_class": by_class,
         }

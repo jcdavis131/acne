@@ -1,6 +1,6 @@
 # ACNE — Agentic Contacts - Named Entities
 
-Local-first people memory for agentic harnesses. Typed Temporal Labeled Property Graph, trigger-phrase resolver, 5-layer token-cache.
+Local-first people memory for agentic harnesses. Typed Temporal Labeled Property Graph with constructs, trigger-phrase resolver, 5-layer token-cache.
 
 No cloud, no vector DB, no OAuth.
 
@@ -10,8 +10,9 @@ ACNE gives your agents a shared, private people layer:
 
 - `my designer` → `Alex Rivera <alex@studio.com> confidence 0.88 source manual`
 - Every node proves where it came from: Document → Chunk → `EXTRACTED_FROM` edge with checksum, timestamp, confidence
-- Every edge is typed: `EMPLOYED_BY`, `AUTHORED`, `LOCATED_AT`, `PARTNERED_WITH`, `CITATION_OF`, `SAME_AS`
+- Every edge is typed: `EMPLOYED_BY`, `AUTHORED`, `LOCATED_AT`, `PARTNERED_WITH`, `CITATION_OF`, `SAME_AS`, plus construct edges `EXECUTES`, `OWNS`, `USES`, `COMPOSED_OF`, `REALIZES`, `ABSTRACTS`
 - 5-layer cache means your 90-second heartbeat gets cheap fast — typical ~70–88% smaller GraphRAG packs vs full dump (% varies, not fixed)
+- **v0.4 Constructs:** 17 node types (Person..Event) + graphify pass that lifts low-level chunks into `Concept ABSTRACTS Entity` and links Agent→Workflow→Project→Task→Goal
 
 ## Install
 
@@ -68,17 +69,19 @@ get_langchain_tools()  # 10 Tools — LangChain StructuredTool
 |---|---:|---|
 | No cloud, no OAuth, privacy by default | ✅ JSONL local | often cloud embeddings |
 | `my designer` → contact with confidence | ✅ 0.88 manual | exact string match |
-| Typed TLPG + provenance back to doc | ✅ 7 node types, typed edges | flat memory |
+| Typed TLPG + constructs + provenance back to doc | ✅ 17 node types, 27 edge types, typed edges | flat memory |
 | Token-cache 5-layer (doc/emb/ext/query/compressed) | ✅ 70-88% typical saving | none |
 | Works across 7 harnesses at once | ✅ shared dir | 1-2 |
+| Harness constructs (Agent, Workflow, Bundle, Project, Goal, Task) + graphify | ✅ EXECUTES, OWNS, COMPOSED_OF, REALIZES, ABSTRACTS | none |
 
 ## Design
 
-**Pipeline (4 stages):**
+**Pipeline (5 stages):**
 1. Ingest: doc → 500-1000 tok overlapping chunks, hash for dedup, checksum
-2. Extract: typed Person/Org/Location/Thing/Citation/Document/Chunk nodes + typed edges, confidence
+2. Extract: typed Person/Org/Location/Thing/Citation/Document/Chunk **+ Construct/Concept/Project/Goal/Task/Agent/Workflow/Skill/Bundle/Event** nodes + typed edges, confidence
 3. Resolve: trigger resolver + `SAME_AS` soft-merge (never hard delete), tx_time/valid_from
-4. GraphRAG: provenance-aware, compressed packs capped to `budget_tokens` (default 600)
+4. Graphify: **v0.4 new** — Concept ABSTRACTS nodes co-occurring in chunk, Agent EXECUTES Workflow, Project COMPOSED_OF Task, Bundle OWNS Skill, Goal REALIZES Project
+5. GraphRAG: provenance-aware, compressed packs capped to `budget_tokens` (default 600)
 
 **Adapters:** Hermes, Claude Code, S Scout, LangChain/LangGraph, MyClaw, CrewAI, OpenAI — 6-10 tools each, 13 MCP tools.
 
@@ -96,6 +99,65 @@ get_langchain_tools()  # 10 Tools — LangChain StructuredTool
 
 MIT
 
+
+## v0.4.0 Constructs + Graphify (2026-08-06 Lane 3)
+
+**7 node types → 17 node types — harness-aware constructs**
+
+Extends TLPG `NodeClass` from `Person|Organization|Location|Thing|Citation|Document|Chunk` to:
+
+- `Construct` (OODA, MoMA-lite, GraphRAG, TLPG, pacing filter, verification economics, checkpoint) — `kind`, `layer`, `principle`
+- `Concept` (orientation > speed, late commitment, 3-layer separation) — `domain`, `abstraction_level`, `definition`
+- `Project` (vector-hoops, vector-hub, dottie, scout-cli, dumbmodel.com, arxiviq) — `status`, `repo`, `tech_stack`
+- `Goal` (Launched = live URL + 3 users) — `status`, `metric`, `deadline`
+- `Task` (Hill-climb, Ship, Fix hub.js) — `status`, `priority`, `assignee`
+- `Agent` (scout-prime, researcher, builder, operator) — `role`, `layer`, `tools`
+- `Workflow` (flawless-delivery, monitor-and-notify) — `phases`, `version`
+- `Skill` (productivity-pack, builder-pack) — `pack`, `tools`
+- `Bundle` (execution bundle v5) — `agents`, `packs`, `workflows`
+- `Event` (launched, deployed, hill-climb) — `timestamp`, `type`
+
+Extends `EdgeType` with 13 construct edges: `OWNS`, `CREATED_BY`, `USES`, `DEPENDS_ON`, `IMPLEMENTS`, `PART_OF`, `MANAGES`, `EXECUTES`, `TRACKS`, `DEFINES`, `REALIZES`, `ABSTRACTS`, `COMPOSED_OF` — all audited via `mutate_relationship_edge`.
+
+**Graphify v0.4** — `hub.tlpg.graphify_constructs()` or `hub.graphify_constructs()`:
+
+- Agent EXECUTES Workflow (name overlap)
+- Project COMPOSED_OF Task
+- Person USES Skill
+- Bundle OWNS Skill
+- Concept ABSTRACTS Chunk (co-occurrence ≥3 nodes same chunk → Concept node)
+- Goal REALIZES Project
+- Pipeline stage4 now returns `{"constructs_created":21,"edges_created":18,"by_class":{...}}`
+
+Usage:
+
+```python
+from acne import ContactsHub
+hub = ContactsHub()
+hub.pipeline_run("""
+Scout Prime executes flawless-delivery workflow.
+It uses builder-pack. Project vector-hoops building chimera.
+Goal Launched = live URL + 3 users by Aug 31.
+""", title="Scout v5")
+# TLPG now has 17 classes
+print(hub.tlpg.stats())  # {"by_class": {"Person":3,"Agent":3,"Workflow":1,"Project":2,"Goal":1,"Construct":2,...}}
+
+# manual constructs
+hub.add_construct("Scout v5 Prime Harness", kind="Bundle", version="5.0")
+hub.add_construct("OODA Loop", kind="Construct", principle="orientation > speed")
+
+# graphify pass
+print(hub.graphify_constructs())
+print(hub.graphrag("Which agents execute flawless-delivery?", hops=2))
+
+# top-level helper
+from acne import graphify_constructs
+graphify_constructs(hub)
+```
+
+Backward compatible: existing 7-type pipelines still work, `stats()` dynamic, `SAME_AS` hard→soft unchanged, token-cache 5-layer untouched.
+
+---
 
 ## v0.3.0 Hard→Soft SAME_AS + 50+ Contacts Hill-Climb (2026-08-06 Lane 2)
 

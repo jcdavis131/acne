@@ -1,0 +1,14 @@
+{
+  "name": "acne hard\u2192soft 50c hill-climb",
+  "branch": "scout/dottie-harness-deep",
+  "timestamp": "2026-08-06T03:08:41.294632+00:00",
+  "gate": "candidate\u2192vectors promotion requires eval scores \u2265 threshold, 7/7 triple-write PASS, no torch, manifest update, README polished, tests PASS",
+  "triple_write_7x7": "7/7 OK verified dottie-20260806T022959Z + dottie-20260805T034534Z-lane2-polish",
+  "no_torch": true,
+  "tests": "uv run pytest or python -m pytest \u2014 no torch",
+  "extras": {
+    "sameas_hard_soft": "hard 0.88-0.98 deterministic soft 0.55-0.89 jaccard/abbrev/cosine/org+location",
+    "contacts": "54c 59 nodes CONTACTS_50",
+    "spec": "docs/ACNE_HILL_CLIMB_50_SAMEAS_SPEC.md 1001 lines"
+  }
+}

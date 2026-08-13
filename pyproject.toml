@@ -1,12 +1,12 @@
 [project]
 name = "acne"
-version = "0.3.0"
-description = "ACNE — Agentic Contacts – Named Entities. Local-first people memory for agentic harnesses."
+version = "0.4.0"
+description = "ACNE — Agentic Contacts – Named Entities. Local-first people memory for agentic harnesses. Now with constructs + graphify."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "Cameron Davis + Scout"}]
-keywords = ["agents", "harness", "contacts", "named-entities", "tlpg", "graphrag", "token-cache"]
+keywords = ["agents", "harness", "contacts", "named-entities", "tlpg", "graphrag", "token-cache", "constructs", "graphify"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",

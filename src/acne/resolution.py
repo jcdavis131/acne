@@ -73,6 +73,7 @@ def blocking_key(node: TLPGNode) -> str:
     """
     Blocking: reduce O(n²) to buckets.
     Person → last name, Org → first token, Location → city, etc.
+    Constructs → kind prefix.
     """
     name = name_normalize(node.canonical_name)
     parts = name.split()
@@ -83,6 +84,10 @@ def blocking_key(node: TLPGNode) -> str:
         return f"O:{parts[0][:5] if parts else ''}"
     if node.node_class == "Location":
         return f"L:{parts[0][:4] if parts else ''}"
+    if node.node_class in ("Agent", "Workflow", "Skill", "Bundle", "Project", "Goal", "Task"):
+        return f"{node.node_class[0]}:{parts[0][:5] if parts else ''}"
+    if node.node_class in ("Construct", "Concept", "Event"):
+        return f"C:{parts[0][:4] if parts else ''}"
     return f"T:{name[:4]}"
 
 def vector_filter_candidates(nodes: List[TLPGNode], query_node: TLPGNode, threshold: float = 0.35) -> List[Tuple[TLPGNode, float]]:
